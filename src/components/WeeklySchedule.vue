@@ -1040,7 +1040,7 @@ function openHolidayManageModal() {
   holidayManageMap.value = {};
   employees.value.forEach((emp) => {
     holidayManageMap.value[emp.name] =
-      typeof emp.lastHolidayIndex === 'number' ? emp.lastHolidayIndex : 0;
+      typeof emp.lastHolidayIndex === 'number' ? emp.lastHolidayIndex : 6;
   });
   showHolidayManageModal.value = true;
 }
