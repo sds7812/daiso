@@ -6,16 +6,13 @@
       <h2 class="table-title">
         (
         <input
-          v-model="titleBracketText"
-          type="text"
-          maxlength="10"
-          placeholder="내용"
+          type="date"
+          v-model="selectedDate"
+          @change="updateWeek"
           class="title-input"
         />
         ) 주간근무계획
-        <button class="confirm-btn" @click="confirmWeeklySchedule">
-          주간근무계획 확정
-        </button>
+        <button class="confirm-btn" @click="confirmWeeklySchedule">확정</button>
       </h2>
       <!-- 상단 입력 영역 -->
       <div class="input-section">
@@ -32,6 +29,7 @@
         <button @click="openModal">관리</button>
         <button @click="openPrintModal">출력</button>
         <button @click="openHolidayManageModal">휴무관리</button>
+        <button @click="openPlanManagementModal">계획 관리</button>
       </div>
 
       <!-- 직원명부 모달 -->
@@ -120,22 +118,18 @@
             <thead>
               <tr>
                 <th>직원명</th>
-                <th>마지막 휴무 요일</th>
+                <th>마지막 휴무 날짜</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="emp in employees" :key="emp.name">
                 <td class="hm-emp-name">{{ emp.name }}</td>
                 <td>
-                  <select
+                  <input
+                    type="date"
                     v-model="holidayManageMap[emp.name]"
-                    @change="onHolidayManageChange(emp.name)"
                     class="hm-select"
-                  >
-                    <option v-for="(day, idx) in days" :key="day" :value="idx">
-                      {{ day }}
-                    </option>
-                  </select>
+                  />
                 </td>
               </tr>
             </tbody>
@@ -143,6 +137,38 @@
           <div class="modal-btns">
             <button @click="saveHolidayManageAll">저장</button>
             <button @click="closeHolidayManageModal">취소</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 계획 관리 모달 -->
+      <div
+        v-if="showPlanManagementModal"
+        class="modal-overlay"
+        @click.self="closePlanManagementModal"
+      >
+        <div class="modal-content">
+          <h3>저장된 주간 계획</h3>
+          <ul class="plan-list">
+            <li
+              v-for="(plan, weekKey) in sortedSavedPlans"
+              :key="weekKey"
+              class="plan-item"
+            >
+              <span>{{ formatWeekKey(weekKey) }}</span>
+              <div class="plan-actions">
+                <button @click="loadPlan(weekKey)">불러오기</button>
+                <button @click="deletePlan(weekKey)" class="delete-btn">
+                  삭제
+                </button>
+              </div>
+            </li>
+            <li v-if="Object.keys(savedPlans).length === 0">
+              저장된 계획이 없습니다.
+            </li>
+          </ul>
+          <div class="modal-btns">
+            <button @click="closePlanManagementModal">닫기</button>
           </div>
         </div>
       </div>
@@ -199,7 +225,12 @@
               <tr>
                 <th>조</th>
                 <th>성명</th>
-                <th v-for="day in days" :key="day">{{ day }}</th>
+                <th v-for="(day, index) in days" :key="day">
+                  {{ day }}<br />
+                  <span class="date-display">{{
+                    getFormattedDate(index)
+                  }}</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -368,37 +399,89 @@
 
     <!-- 출력 전용 UI -->
     <div class="print-only">
-      <h2 class="table-title">
-        (
-        {{ titleBracketText || ' ' }}
-        ) 주간근무계획
-      </h2>
+      <h2 class="table-title">{{ printTitleMonth }}월 근무일정표</h2>
       <table class="print-table">
         <thead>
           <tr>
-            <th class="blank-header"></th>
-            <th v-for="day in days" :key="'print-head-' + day">{{ day }}</th>
+            <th>근무</th>
+            <th>구분</th>
+            <th v-for="(day, index) in days" :key="'print-head-' + day">
+              {{ day }}<br />
+              <span class="date-display">{{ getFormattedDate(index) }}</span>
+            </th>
           </tr>
         </thead>
         <tbody>
+          <!-- A조 -->
           <tr>
-            <th>A조</th>
-            <td v-for="(day, dayIdx) in days" :key="'print-a-' + dayIdx">
-              <div v-for="name in getWorkingEmployees('A', dayIdx)" :key="name">
+            <th rowspan="2">A조</th>
+            <th>직원</th>
+            <td
+              v-for="(day, dayIdx) in days"
+              :key="'print-a-regular-' + dayIdx"
+            >
+              <div
+                v-for="name in getWorkingEmployeesByType('A', '정직원', dayIdx)"
+                :key="name"
+              >
                 {{ name }}
               </div>
             </td>
           </tr>
           <tr>
-            <th>B조</th>
-            <td v-for="(day, dayIdx) in days" :key="'print-b-' + dayIdx">
-              <div v-for="name in getWorkingEmployees('B', dayIdx)" :key="name">
+            <th>파트</th>
+            <td
+              v-for="(day, dayIdx) in days"
+              :key="'print-a-parttime-' + dayIdx"
+            >
+              <div
+                v-for="name in getWorkingEmployeesByType(
+                  'A',
+                  '파트타임',
+                  dayIdx
+                )"
+                :key="name"
+              >
+                {{ name }}
+              </div>
+            </td>
+          </tr>
+          <!-- B조 -->
+          <tr>
+            <th rowspan="2">B조</th>
+            <th>직원</th>
+            <td
+              v-for="(day, dayIdx) in days"
+              :key="'print-b-regular-' + dayIdx"
+            >
+              <div
+                v-for="name in getWorkingEmployeesByType('B', '정직원', dayIdx)"
+                :key="name"
+              >
                 {{ name }}
               </div>
             </td>
           </tr>
           <tr>
-            <th>마감</th>
+            <th>파트</th>
+            <td
+              v-for="(day, dayIdx) in days"
+              :key="'print-b-parttime-' + dayIdx"
+            >
+              <div
+                v-for="name in getWorkingEmployeesByType(
+                  'B',
+                  '파트타임',
+                  dayIdx
+                )"
+                :key="name"
+              >
+                {{ name }}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <th colspan="2">마감</th>
             <td v-for="(day, dayIdx) in days" :key="'print-closer-' + dayIdx">
               <div v-for="name in getClosers(dayIdx)" :key="name">
                 {{ name }}
@@ -406,15 +489,47 @@
             </td>
           </tr>
           <tr>
-            <th>휴무</th>
-            <td v-for="(day, dayIdx) in days" :key="'print-holiday-' + dayIdx">
-              <div v-for="name in getHolidayTakers(dayIdx)" :key="name">
+            <th rowspan="2">휴무</th>
+            <th>직원</th>
+            <td
+              v-for="(day, dayIdx) in days"
+              :key="'print-holiday-regular-' + dayIdx"
+            >
+              <div
+                v-for="name in getHolidayTakersByType('정직원', dayIdx)"
+                :key="name"
+              >
                 {{ name }}
               </div>
             </td>
           </tr>
           <tr>
-            <th>내용</th>
+            <th>파트</th>
+            <td
+              v-for="(day, dayIdx) in days"
+              :key="'print-holiday-parttime-' + dayIdx"
+            >
+              <div
+                v-for="name in getHolidayTakersByType('파트타임', dayIdx)"
+                :key="name"
+              >
+                {{ name }}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <th colspan="2">교육·지원</th>
+            <td v-for="(day, dayIdx) in days" :key="'print-training-' + dayIdx">
+              <div
+                v-for="name in getTrainingSupportEmployees(dayIdx)"
+                :key="name"
+              >
+                {{ name }}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <th colspan="2">내용</th>
             <td
               v-for="(day, dayIdx) in days"
               :key="'print-stats-' + dayIdx"
@@ -423,6 +538,12 @@
               총원: {{ getDailyTotal(dayIdx) }}<br />
               근무: {{ getStats('total', '', dayIdx) }}<br />
               휴무: {{ getStats('holiday', '', dayIdx) }}<br />
+              교/지:
+              {{
+                getTrainingSupportEmployees(dayIdx).length > 0
+                  ? getTrainingSupportEmployees(dayIdx).length
+                  : '-'
+              }}<br />
               <strong>A조</strong><br />
               정직 : {{ getStats('A', '정직원', dayIdx) }}<br />
               파트 : {{ getStats('A', '파트타임', dayIdx) }}<br />
@@ -438,78 +559,125 @@
 </template>
 
 <script setup>
-// 한글 주석: 필요한 Vue 기능 import
+// 1. Imports
 import { ref, computed, watch, onMounted } from 'vue';
 
-// 한글 주석: 요일 배열
+// 2. State (상태 변수 선언)
 const days = ['일', '월', '화', '수', '목', '금', '토'];
-
-// 한글 주석: 직원 입력 상태
+const selectedDate = ref(new Date().toISOString().slice(0, 10));
 const newEmployeeName = ref('');
 const newEmployeeType = ref('정직원');
-
-// 한글 주석: 전체 직원 목록 (이름, 구분)
 const employees = ref([]);
+const aTeam = ref(Array(7).fill(null));
+const bTeam = ref(Array(7).fill(null));
+const dragEmployee = ref(null);
+const showModal = ref(false);
+const showPrintModal = ref(false);
+const modalEmployees = ref([]);
+const selectedIdx = ref(null);
+const showMessageBox = ref(false);
+const messageBoxText = ref('');
+const messageBoxType = ref('default');
+const showHolidayManageModal = ref(false);
+const holidayManageMap = ref({});
+const showPlanManagementModal = ref(false);
+const savedPlans = ref({});
+let messageBoxCallback = null;
+let dragIdx = null;
 
-// 한글 주석: 정직원/파트타임 분리 (근무표에 배치되지 않은 직원만)
+const weekDates = computed(() => {
+  const date = new Date(selectedDate.value);
+  const day = date.getDay();
+  const diff = date.getDate() - day;
+  const sunday = new Date(date.setDate(diff));
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const newDate = new Date(sunday);
+    newDate.setDate(sunday.getDate() + i);
+    dates.push(newDate);
+  }
+  return dates;
+});
+
 const unassignedEmployees = computed(() => {
-  // 근무표에 배치된 직원 이름 목록
   const assignedNames = [
     ...aTeam.value.filter((e) => e).map((e) => e.name),
     ...bTeam.value.filter((e) => e).map((e) => e.name),
   ];
   return employees.value.filter((e) => !assignedNames.includes(e.name));
 });
+
 const regularEmployees = computed(() =>
   unassignedEmployees.value.filter((e) => e.type === '정직원')
 );
+
 const partTimeEmployees = computed(() =>
   unassignedEmployees.value.filter((e) => e.type === '파트타임')
 );
 
-// 한글 주석: A조/B조 직원(7명 고정, null로 채움, 휴일 정보 포함)
-function makeTeamArray() {
-  // 직원 객체에 holidays(요일별 휴일 여부) 추가
-  return Array(7)
-    .fill(null)
-    .map(() => null);
+const regularEmployeeRows = computed(() =>
+  chunkArray(regularEmployees.value, 2)
+);
+const partTimeEmployeeRows = computed(() =>
+  chunkArray(partTimeEmployees.value, 2)
+);
+
+const printTitleMonth = computed(() => {
+  if (weekDates.value.length > 3) {
+    // A week can span two months. Use the month of the Wednesday (4th day)
+    // as it's representative of the week's majority month.
+    return weekDates.value[3].getMonth() + 1;
+  }
+  // Fallback to the selected date's month.
+  return new Date(selectedDate.value).getMonth() + 1;
+});
+
+const sortedSavedPlans = computed(() => {
+  const keys = Object.keys(savedPlans.value).sort().reverse();
+  const sorted = {};
+  for (const key of keys) {
+    sorted[key] = savedPlans.value[key];
+  }
+  return sorted;
+});
+
+// 3. Business Logic (핵심 로직 함수)
+
+function getFormattedDate(dayIndex) {
+  const date = weekDates.value[dayIndex];
+  return `${date.getMonth() + 1}/${date.getDate()}`;
 }
-const aTeam = ref(makeTeamArray());
-const bTeam = ref(makeTeamArray());
 
-// 한글 주석: 드래그 중인 직원 정보
-const dragEmployee = ref(null);
+function chunkArray(arr, size) {
+  const result = [];
+  for (let i = 0; i < arr.length; i += size) {
+    result.push(arr.slice(i, i + size));
+  }
+  return result;
+}
 
-// 한글 주석: 직원 추가 함수
 function addEmployee() {
-  // 에러 처리: 이름 미입력, 중복
   if (!newEmployeeName.value.trim()) {
     showMessageBoxWithText('이름을 입력하세요.');
     return;
   }
-  if (
-    employees.value.some((e) => e.name === newEmployeeName.value.trim()) ||
-    aTeam.value.some((e) => e && e.name === newEmployeeName.value.trim()) ||
-    bTeam.value.some((e) => e && e.name === newEmployeeName.value.trim())
-  ) {
+  if (employees.value.some((e) => e.name === newEmployeeName.value.trim())) {
     showMessageBoxWithText('이미 등록된 이름입니다.');
     return;
   }
   employees.value.push({
     name: newEmployeeName.value.trim(),
     type: newEmployeeType.value,
+    lastHolidayDate: null,
   });
   newEmployeeName.value = '';
 }
 
-// 한글 주석: 드래그 시작
 function onDragStart(emp) {
   dragEmployee.value = emp;
 }
 
-// 한글 주석: 직원명부 순서에 따라 조별로 자동 정렬하는 함수
 function sortTeamByEmployeeOrder(team) {
-  // 직원명부 내 순서와 정직원 > 파트타임 우선순위로 정렬, null은 뒤로
   const order = employees.value.map((e) => e.name);
   team.value = team.value
     .filter((e) => e)
@@ -520,20 +688,21 @@ function sortTeamByEmployeeOrder(team) {
   while (team.value.length < 7) team.value.push(null);
 }
 
-// 한글 주석: 드롭 처리
 function onDrop(teamType, idx) {
   if (!dragEmployee.value) return;
-  // 근무표에 이미 배치된 직원은 무시
   if (
     aTeam.value.some((e) => e && e.name === dragEmployee.value.name) ||
     bTeam.value.some((e) => e && e.name === dragEmployee.value.name)
   )
     return;
-  // 이름, 타입, 마지막 휴무 인덱스를 복사하고 근무기록은 모두 초기화
+
+  const masterEmp = employees.value.find(
+    (e) => e.name === dragEmployee.value.name
+  );
   const newEmp = {
     name: dragEmployee.value.name,
     type: dragEmployee.value.type,
-    lastHolidayIndex: dragEmployee.value.lastHolidayIndex,
+    lastHolidayDate: masterEmp ? masterEmp.lastHolidayDate : null,
     checked: Array(7).fill(false),
     holidays: Array(7).fill(false),
     stars: Array(7).fill(false),
@@ -548,39 +717,20 @@ function onDrop(teamType, idx) {
   dragEmployee.value = null;
 }
 
-// 한글 주석: 관리 버튼(추후 구현)
-function manageEmployees() {
-  alert('관리 기능은 추후 구현 예정입니다.');
-}
-
-// 한글 주석: 셀에서 직원 더블클릭 시 좌측 목록으로 복귀
 function onRemoveFromTeam(teamType, idx) {
-  let emp = null;
   if (teamType === 'A') {
-    emp = aTeam.value[idx];
     aTeam.value[idx] = null;
     sortTeamByEmployeeOrder(aTeam);
   } else {
-    emp = bTeam.value[idx];
     bTeam.value[idx] = null;
     sortTeamByEmployeeOrder(bTeam);
   }
 }
 
-// 한글 주석: 모달 표시 상태
-const showModal = ref(false);
-const showPrintModal = ref(false);
-// 한글 주석: 모달 내 직원 배열(정직 > 파트 순, 드래그/삭제/저장용)
-const modalEmployees = ref([]);
-// 한글 주석: 선택된 직원 인덱스
-const selectedIdx = ref(null);
-
-// 한글 주석: 모달 열 때 직원명부 복사 및 정렬
 function openModal() {
-  // employees(명부)만 복사 후 정직원 > 파트타임 순 정렬
-  modalEmployees.value = employees.value
-    .map((emp) => ({ ...emp }))
-    .sort((a, b) => (a.type === b.type ? 0 : a.type === '정직원' ? -1 : 1));
+  modalEmployees.value = [...employees.value].sort((a, b) =>
+    a.type === b.type ? 0 : a.type === '정직원' ? -1 : 1
+  );
   selectedIdx.value = null;
   showModal.value = true;
 }
@@ -589,137 +739,55 @@ function closeModal() {
   showModal.value = false;
 }
 
-// 한글 주석: 모달에서 드래그 시작
-let dragIdx = null;
 function onModalDragStart(idx) {
   dragIdx = idx;
 }
 
-// 한글 주석: 모달에서 드롭(순서 변경)
 function onModalDrop(dropIdx) {
   if (dragIdx === null || dragIdx === dropIdx) return;
   const arr = modalEmployees.value;
   const moved = arr.splice(dragIdx, 1)[0];
   arr.splice(dropIdx, 0, moved);
   dragIdx = null;
-  // 정직원 > 파트타임 순서로 정렬
-  modalEmployees.value = [...modalEmployees.value].sort((a, b) =>
+  modalEmployees.value.sort((a, b) =>
     a.type === b.type ? 0 : a.type === '정직원' ? -1 : 1
   );
 }
 
-// 한글 주석: 모달에서 직원 삭제
 function deleteModalEmployee(idx) {
   modalEmployees.value.splice(idx, 1);
   selectedIdx.value = null;
-  // 정직원 > 파트타임 순서로 정렬
-  modalEmployees.value = [...modalEmployees.value].sort((a, b) =>
+  modalEmployees.value.sort((a, b) =>
     a.type === b.type ? 0 : a.type === '정직원' ? -1 : 1
   );
 }
 
-// 한글 주석: 모달 저장(실제 직원 데이터 반영)
 function saveModalEmployees() {
-  // 저장 시 정직원 > 파트타임 순서로 자동 정렬
-  const sorted = [...modalEmployees.value].sort((a, b) =>
+  employees.value = [...modalEmployees.value].sort((a, b) =>
     a.type === b.type ? 0 : a.type === '정직원' ? -1 : 1
   );
-  employees.value = sorted;
-  // 각 조 정렬만 새 순서에 맞게
   sortTeamByEmployeeOrder(aTeam);
   sortTeamByEmployeeOrder(bTeam);
   closeModal();
 }
 
-// 한글 주석: 출력 모달 열기
 function openPrintModal() {
   showPrintModal.value = true;
 }
 
-// 한글 주석: 출력 모달 닫기
 function closePrintModal() {
   showPrintModal.value = false;
 }
 
-// 한글 주석: A4 출력 기능
 function printSchedule() {
   window.print();
   closePrintModal();
 }
 
-// 한글 주석: PDF 저장 기능 (브라우저 인쇄 기능 사용)
 function downloadPDF() {
   window.print();
   closePrintModal();
 }
-
-// 한글 주석: 전체 직원명부(좌측+표에 배치된 직원 모두)
-const employeesList = computed(() => {
-  // 좌측 목록 + A조/B조에 배치된 직원까지 모두 합침
-  const list = [...employees.value];
-  aTeam.value.forEach((e) => {
-    if (e) list.push(e);
-  });
-  bTeam.value.forEach((e) => {
-    if (e) list.push(e);
-  });
-  return list;
-});
-
-// 한글 주석: 직원 데이터 localStorage 키
-const STORAGE_KEY = 'daiso-schedule-employees-v1';
-
-// 한글 주석: 타이틀 괄호 안 텍스트 상태
-const titleBracketText = ref('');
-
-// 한글 주석: 직원 데이터 저장 함수
-function saveToStorage() {
-  const data = {
-    employees: employees.value,
-    aTeam: aTeam.value,
-    bTeam: bTeam.value,
-    titleBracketText: titleBracketText.value,
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
-
-// 한글 주석: 직원 데이터 불러오기 함수
-function loadFromStorage() {
-  const data = localStorage.getItem(STORAGE_KEY);
-  if (data) {
-    try {
-      const parsed = JSON.parse(data);
-      employees.value = parsed.employees || [];
-      aTeam.value = Array.isArray(parsed.aTeam)
-        ? parsed.aTeam
-        : Array(7).fill(null);
-      bTeam.value = Array.isArray(parsed.bTeam)
-        ? parsed.bTeam
-        : Array(7).fill(null);
-      titleBracketText.value = parsed.titleBracketText || '';
-    } catch (e) {
-      // 에러 발생 시 초기화
-      employees.value = [];
-      aTeam.value = Array(7).fill(null);
-      bTeam.value = Array(7).fill(null);
-      titleBracketText.value = '';
-    }
-  }
-}
-
-// 한글 주석: employees, aTeam, bTeam, titleBracketText가 바뀔 때마다 저장
-watch([employees, aTeam, bTeam, titleBracketText], saveToStorage, {
-  deep: true,
-});
-
-// 한글 주석: 컴포넌트 마운트 시 데이터 불러오기
-onMounted(loadFromStorage);
-
-// 한글 주석: 메시지 박스 상태
-const showMessageBox = ref(false);
-const messageBoxText = ref('');
-const messageBoxType = ref('default'); // 'default' | 'confirm'
-let messageBoxCallback = null;
 
 function showMessageBoxWithText(text, type = 'default', callback = null) {
   messageBoxText.value = text;
@@ -738,72 +806,43 @@ function onMessageBoxCancel() {
   messageBoxCallback = null;
 }
 
-// 한글 주석: 주간근무계획 확정 함수
-function confirmWeeklySchedule() {
-  showMessageBoxWithText(
-    '주간근무계획을 확정하시겠습니까? 휴무관리 기준이 갱신됩니다.',
-    'confirm',
-    () => {
-      employees.value.forEach((masterEmp) => {
-        // 근무표(A/B)에서 해당 직원 찾기
-        const teamEmp =
-          aTeam.value.find((e) => e && e.name === masterEmp.name) ||
-          bTeam.value.find((e) => e && e.name === masterEmp.name);
-        let lastIdx = -1;
-        if (teamEmp && teamEmp.holidays) {
-          for (let i = 0; i < teamEmp.holidays.length; i++) {
-            if (teamEmp.holidays[i]) lastIdx = i;
-          }
-        }
-        if (lastIdx !== -1) {
-          masterEmp.lastHolidayIndex = lastIdx;
-        } else {
-          delete masterEmp.lastHolidayIndex;
-        }
-      });
-      showMessageBoxWithText(
-        '주간근무계획이 확정되었습니다. 휴무관리 기준이 갱신됩니다.'
-      );
-    }
-  );
-}
-
-// 한글 주석: 휴일 토글 함수
-function getDayNumber(weekType, dayIdx) {
-  // weekType: 'this' | 'last', dayIdx: 0(일)~6(토)
-  // 이번주: 토1~일7, 지난주: 토8~일14
-  const base = weekType === 'this' ? 1 : 8;
-  // dayIdx: 0(일)~6(토) → 토:6, 금:5, ... 일:0
-  return base + ((6 - dayIdx + 7) % 7);
-}
-
 function toggleHoliday(teamType, idx, dayIdx) {
   const team = teamType === 'A' ? aTeam.value : bTeam.value;
   const emp = team[idx];
   if (!emp) return;
+
   if (!emp.holidays) emp.holidays = Array(7).fill(false);
   const isHoliday = emp.holidays[dayIdx];
   const currentCount = emp.holidays.filter(Boolean).length;
   const maxHoliday = emp.type === '정직원' ? 2 : 1;
 
-  // 휴무관리 요일 번호 (지난주)
-  const lastWeekNum =
-    typeof emp.lastHolidayIndex === 'number'
-      ? getDayNumber('last', emp.lastHolidayIndex)
-      : undefined;
-  // 근무표 요일 번호 (이번주)
-  const thisWeekNum = getDayNumber('this', dayIdx);
+  const newHolidayDate = weekDates.value[dayIdx];
+  const masterEmp = employees.value.find((e) => e.name === emp.name);
+  const lastHolidayDate = masterEmp ? masterEmp.lastHolidayDate : null;
+
+  const getDaysDiff = (dateStr1, dateStr2) => {
+    if (!dateStr1 || !dateStr2) return Infinity;
+    const date1 = new Date(dateStr1);
+    const date2 = new Date(dateStr2);
+    date1.setHours(0, 0, 0, 0);
+    date2.setHours(0, 0, 0, 0);
+    return Math.round(Math.abs(date2 - date1) / (1000 * 60 * 60 * 24));
+  };
 
   if (emp.type === '정직원') {
-    // 이번주에 이미 휴일이 있으면 그 인덱스가 기준(두번째 휴무)
-    const firstHolidayIdx = emp.holidays.findIndex((h) => h);
-    if (firstHolidayIdx !== -1 && !isHoliday) {
-      // 두번째 휴무: 이번주 내에서만 비교
-      const firstNum = getDayNumber('this', firstHolidayIdx);
-      const diff = firstNum - thisWeekNum;
+    const firstHolidayIdxInWeek = emp.holidays.findIndex((h) => h);
+
+    if (firstHolidayIdxInWeek !== -1 && !isHoliday) {
+      // 두 번째 휴무
+      const firstHolidayDate = weekDates.value[firstHolidayIdxInWeek];
+      const diff = getDaysDiff(
+        firstHolidayDate.toISOString().slice(0, 10),
+        newHolidayDate.toISOString().slice(0, 10)
+      );
+
       if (diff > 5) {
         showMessageBoxWithText(
-          '정직원은 기준 휴무일로부터 5일 이내만 휴무를 지정할 수 있습니다.'
+          '정직원의 두 휴일 사이 간격은 5일을 초과할 수 없습니다.'
         );
         return;
       }
@@ -814,12 +853,15 @@ function toggleHoliday(teamType, idx, dayIdx) {
         return;
       }
     } else if (!isHoliday) {
-      // 첫번째 휴무: 지난주 기준
-      if (typeof lastWeekNum === 'number') {
-        const diff = lastWeekNum - thisWeekNum;
+      // 첫 번째 휴무
+      if (lastHolidayDate) {
+        const diff = getDaysDiff(
+          lastHolidayDate,
+          newHolidayDate.toISOString().slice(0, 10)
+        );
         if (diff > 5) {
           showMessageBoxWithText(
-            '정직원은 기준 휴무일로부터 5일 이내만 휴무를 지정할 수 있습니다.'
+            `정직원은 이전 휴무일(${lastHolidayDate})로부터 5일 이내에 휴무를 지정해야 합니다.`
           );
           return;
         }
@@ -840,11 +882,14 @@ function toggleHoliday(teamType, idx, dayIdx) {
         );
         return;
       }
-      if (typeof lastWeekNum === 'number') {
-        const diff = lastWeekNum - thisWeekNum;
+      if (lastHolidayDate) {
+        const diff = getDaysDiff(
+          lastHolidayDate,
+          newHolidayDate.toISOString().slice(0, 10)
+        );
         if (diff > 6) {
           showMessageBoxWithText(
-            '파트타임은 기준 휴무일로부터 6일 이내만 휴무를 지정할 수 있습니다.'
+            `파트타임은 이전 휴무일(${lastHolidayDate})로부터 6일 이내에 휴무를 지정해야 합니다.`
           );
           return;
         }
@@ -852,159 +897,82 @@ function toggleHoliday(teamType, idx, dayIdx) {
     }
   }
   emp.holidays[dayIdx] = !isHoliday;
-  // 한글 주석: 근무표에서만 임시로 토글, 확정 전까지는 휴무관리 기준에 반영하지 않음
 }
 
-// 한글 주석: 체크와 별 토글 함수
 function toggleCheckOrStar(teamType, idx, dayIdx) {
   const team = teamType === 'A' ? aTeam.value : bTeam.value;
   const emp = team[idx];
-  if (!emp) return;
+  if (!emp || (emp.holidays && emp.holidays[dayIdx])) return;
 
-  // 휴일인 경우 토글 불가
-  if (emp.holidays && emp.holidays[dayIdx]) return;
-
-  // 배열 초기화 (존재하지 않을 때만)
   if (!emp.checked) emp.checked = Array(7).fill(false);
   if (!emp.stars) emp.stars = Array(7).fill(false);
 
-  // B조 정직원인 경우: 체크 ↔ 별 토글
   if (teamType === 'B' && emp.type === '정직원') {
     if (emp.checked[dayIdx]) {
-      // 체크가 있으면 별로 변경
       emp.checked[dayIdx] = false;
       emp.stars[dayIdx] = true;
     } else if (emp.stars[dayIdx]) {
-      // 별이 있으면 빈 셀로 변경 (체크로 바뀌지 않음)
       emp.stars[dayIdx] = false;
     } else {
-      // 아무것도 없으면 체크로 설정
       emp.checked[dayIdx] = true;
     }
   } else {
-    // A조 또는 파트타임: 체크만 토글
     emp.checked[dayIdx] = !emp.checked[dayIdx];
-    emp.stars[dayIdx] = false; // 별표시 해제
+    emp.stars[dayIdx] = false;
   }
 }
 
-// 한글 주석: 성명란 클릭 시 해당 직원의 요일별 체크 토글
 function onNameCellClick(teamType, idx) {
   const team = teamType === 'A' ? aTeam.value : bTeam.value;
   const emp = team[idx];
   if (!emp) return;
 
-  // 배열 초기화
   if (!emp.checked) emp.checked = Array(7).fill(false);
   if (!emp.stars) emp.stars = Array(7).fill(false);
   if (!emp.holidays) emp.holidays = Array(7).fill(false);
 
-  // 모든 직원: 빈 셀 ↔ 모든 셀 체크 토글 (휴일, 별표시는 유지)
   const checkedCells = emp.checked.filter(Boolean).length;
-
   if (checkedCells === 0) {
-    // 체크가 없으면 모든 빈 셀에 체크 표시 (휴일, 별표시는 그대로)
     for (let i = 0; i < 7; i++) {
       if (!emp.holidays[i] && !emp.stars[i]) {
         emp.checked[i] = true;
       }
     }
   } else {
-    // 체크가 있으면 모든 체크 해제 (휴일, 별표시는 그대로)
     emp.checked = Array(7).fill(false);
   }
 }
 
-// 한글 주석: 통계 함수
 function getStats(teamType, empType, dayIdx) {
   let val = 0;
+  const getTeamVal = (arr, type) =>
+    arr.reduce((acc, emp) => {
+      if (emp && !emp.holidays?.[dayIdx]) {
+        const isWorking = emp.checked?.[dayIdx] || emp.stars?.[dayIdx];
+        if (isWorking) {
+          if (type === '계' || emp.type === type) {
+            return acc + 1;
+          }
+        }
+      }
+      return acc;
+    }, 0);
+
   if (teamType === 'A' || teamType === 'B') {
-    let arr = teamType === 'A' ? aTeam.value : bTeam.value;
-    if (empType === '정직원') {
-      val = arr.reduce((acc, emp) => {
-        if (
-          emp &&
-          emp.type === '정직원' &&
-          !emp.holidays?.[dayIdx] &&
-          (emp.checked?.[dayIdx] || emp.stars?.[dayIdx])
-        ) {
-          return acc + 1;
-        }
-        return acc;
-      }, 0);
-    } else if (empType === '파트타임') {
-      val = arr.reduce((acc, emp) => {
-        if (
-          emp &&
-          emp.type === '파트타임' &&
-          !emp.holidays?.[dayIdx] &&
-          emp.checked?.[dayIdx]
-        ) {
-          return acc + 1;
-        }
-        return acc;
-      }, 0);
-    } else if (empType === '계') {
-      val = arr.reduce((acc, emp) => {
-        if (
-          emp &&
-          !emp.holidays?.[dayIdx] &&
-          (emp.checked?.[dayIdx] || emp.stars?.[dayIdx])
-        ) {
-          return acc + 1;
-        }
-        return acc;
-      }, 0);
+    const targetTeam = teamType === 'A' ? aTeam.value : bTeam.value;
+    if (empType === '정직원' || empType === '파트타임' || empType === '계') {
+      val = getTeamVal(targetTeam, empType);
     }
   } else if (teamType === 'total') {
-    let a = aTeam.value.reduce((acc, emp) => {
-      if (
-        emp &&
-        !emp.holidays?.[dayIdx] &&
-        (emp.checked?.[dayIdx] || emp.stars?.[dayIdx])
-      ) {
-        return acc + 1;
-      }
-      return acc;
-    }, 0);
-    let b = bTeam.value.reduce((acc, emp) => {
-      if (
-        emp &&
-        !emp.holidays?.[dayIdx] &&
-        (emp.checked?.[dayIdx] || emp.stars?.[dayIdx])
-      ) {
-        return acc + 1;
-      }
-      return acc;
-    }, 0);
-    val = a + b;
+    val = getTeamVal(aTeam.value, '계') + getTeamVal(bTeam.value, '계');
   } else if (teamType === 'holiday') {
-    let a = aTeam.value.filter(
+    val = [...aTeam.value, ...bTeam.value].filter(
       (e) => e && e.holidays && e.holidays[dayIdx]
     ).length;
-    let b = bTeam.value.filter(
-      (e) => e && e.holidays && e.holidays[dayIdx]
-    ).length;
-    val = a + b;
   }
   return val === 0 ? '-' : val;
 }
 
-function chunkArray(arr, size) {
-  const result = [];
-  for (let i = 0; i < arr.length; i += size) {
-    result.push(arr.slice(i, i + size));
-  }
-  return result;
-}
-const regularEmployeeRows = computed(() =>
-  chunkArray(regularEmployees.value, 2)
-);
-const partTimeEmployeeRows = computed(() =>
-  chunkArray(partTimeEmployees.value, 2)
-);
-
-// --- 출력용 데이터 계산 함수 ---
 const getWorkingEmployees = (team, dayIdx) => {
   const targetTeam = team === 'A' ? aTeam.value : bTeam.value;
   return targetTeam
@@ -1016,38 +984,69 @@ const getWorkingEmployees = (team, dayIdx) => {
     )
     .map((emp) => emp.name);
 };
+
+const getWorkingEmployeesByType = (team, empType, dayIdx) => {
+  const targetTeam = team === 'A' ? aTeam.value : bTeam.value;
+  return targetTeam
+    .filter(
+      (emp) =>
+        emp &&
+        emp.type === empType &&
+        !emp.holidays?.[dayIdx] &&
+        (emp.checked?.[dayIdx] || emp.stars?.[dayIdx])
+    )
+    .map((emp) => emp.name);
+};
+
 const getClosers = (dayIdx) => {
   return bTeam.value
     .filter((emp) => emp && emp.type === '정직원' && emp.stars?.[dayIdx])
     .map((emp) => emp.name);
 };
+
 const getHolidayTakers = (dayIdx) => {
   return [...aTeam.value, ...bTeam.value]
     .filter((emp) => emp && emp.holidays?.[dayIdx])
     .map((emp) => emp.name);
 };
+
+const getHolidayTakersByType = (empType, dayIdx) => {
+  return [...aTeam.value, ...bTeam.value]
+    .filter((emp) => emp && emp.type === empType && emp.holidays?.[dayIdx])
+    .map((emp) => emp.name);
+};
+
+const getTrainingSupportEmployees = (dayIdx) => {
+  const allTeamMembers = [...aTeam.value, ...bTeam.value];
+  return allTeamMembers
+    .filter(
+      (emp) =>
+        emp &&
+        !emp.holidays?.[dayIdx] &&
+        !emp.checked?.[dayIdx] &&
+        !emp.stars?.[dayIdx]
+    )
+    .map((emp) => emp.name);
+};
+
 const getDailyTotal = (dayIdx) => {
   const working = getStats('total', '', dayIdx);
   const holiday = getStats('holiday', '', dayIdx);
+  const training = getTrainingSupportEmployees(dayIdx).length;
   const total =
-    (working === '-' ? 0 : working) + (holiday === '-' ? 0 : holiday);
+    (working === '-' ? 0 : working) +
+    (holiday === '-' ? 0 : holiday) +
+    training;
   return total === 0 ? '-' : total;
 };
 
-// 한글 주석: 휴무관리 버튼 클릭 (아직 미구현)
 function openHolidayManageModal() {
-  // 직원별로 현재 lastHolidayIndex를 기본값으로 세팅
   holidayManageMap.value = {};
   employees.value.forEach((emp) => {
-    holidayManageMap.value[emp.name] =
-      typeof emp.lastHolidayIndex === 'number' ? emp.lastHolidayIndex : 6;
+    holidayManageMap.value[emp.name] = emp.lastHolidayDate || '';
   });
   showHolidayManageModal.value = true;
 }
-
-// 한글 주석: 휴무관리 모달 상태
-const showHolidayManageModal = ref(false);
-const holidayManageMap = ref({});
 
 function closeHolidayManageModal() {
   showHolidayManageModal.value = false;
@@ -1056,19 +1055,159 @@ function closeHolidayManageModal() {
 function saveHolidayManageAll() {
   employees.value.forEach((emp) => {
     if (holidayManageMap.value.hasOwnProperty(emp.name)) {
-      emp.lastHolidayIndex = Number(holidayManageMap.value[emp.name]);
+      emp.lastHolidayDate = holidayManageMap.value[emp.name];
     }
   });
-  showMessageBoxWithText('모든 직원의 마지막 휴무 요일이 저장되었습니다.');
+  showMessageBoxWithText('모든 직원의 마지막 휴무 날짜가 저장되었습니다.');
   closeHolidayManageModal();
 }
 
-function onHolidayManageChange(name) {
-  const emp = employees.value.find((e) => e.name === name);
-  if (emp) {
-    emp.lastHolidayIndex = Number(holidayManageMap.value[name]);
+function openPlanManagementModal() {
+  showPlanManagementModal.value = true;
+}
+function closePlanManagementModal() {
+  showPlanManagementModal.value = false;
+}
+
+function formatWeekKey(weekKey) {
+  const date = new Date(weekKey);
+  const endDate = new Date(date);
+  endDate.setDate(date.getDate() + 6);
+  return `${date.getMonth() + 1}/${date.getDate()} ~ ${
+    endDate.getMonth() + 1
+  }/${endDate.getDate()} 주간 계획`;
+}
+
+function loadPlan(weekKey) {
+  selectedDate.value = weekKey;
+  closePlanManagementModal();
+}
+
+function deletePlan(weekKey) {
+  showMessageBoxWithText(
+    `${formatWeekKey(weekKey)}을(를) 삭제하시겠습니까?`,
+    'confirm',
+    () => {
+      delete savedPlans.value[weekKey];
+      showMessageBoxWithText('삭제되었습니다.');
+      if (getWeekKey(new Date(selectedDate.value)) === weekKey) {
+        aTeam.value = Array(7).fill(null);
+        bTeam.value = Array(7).fill(null);
+      }
+    }
+  );
+}
+
+function getWeekKey(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day;
+  const sunday = new Date(d.setDate(diff));
+  return sunday.toISOString().slice(0, 10);
+}
+
+function updateTeamsForSelectedDate(dateStr) {
+  const weekKey = getWeekKey(new Date(dateStr));
+  const plan = savedPlans.value[weekKey];
+  if (plan) {
+    aTeam.value = plan.aTeam;
+    bTeam.value = plan.bTeam;
+  } else {
+    aTeam.value = Array(7).fill(null);
+    bTeam.value = Array(7).fill(null);
   }
 }
+
+const STORAGE_KEY = 'daiso-weekly-plans-v1';
+
+function saveToStorage() {
+  const data = {
+    employees: employees.value,
+    savedPlans: savedPlans.value,
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function loadFromStorage() {
+  const data = localStorage.getItem(STORAGE_KEY);
+  if (data) {
+    try {
+      const parsed = JSON.parse(data);
+      if (
+        parsed.employees &&
+        parsed.employees.some((e) => e.hasOwnProperty('lastHolidayIndex'))
+      ) {
+        parsed.employees.forEach((emp) => {
+          if (emp.hasOwnProperty('lastHolidayIndex')) {
+            emp.lastHolidayDate = null;
+            delete emp.lastHolidayIndex;
+          }
+        });
+      }
+      employees.value = parsed.employees || [];
+      savedPlans.value = parsed.savedPlans || {};
+    } catch (e) {
+      console.error('Failed to load data from storage', e);
+      employees.value = [];
+      savedPlans.value = {};
+    }
+  }
+}
+
+function confirmWeeklySchedule() {
+  showMessageBoxWithText(
+    '현재 계획을 확정하고 저장하시겠습니까?',
+    'confirm',
+    () => {
+      employees.value.forEach((masterEmp) => {
+        const teamEmp =
+          aTeam.value.find((e) => e && e.name === masterEmp.name) ||
+          bTeam.value.find((e) => e && e.name === masterEmp.name);
+        if (teamEmp && teamEmp.holidays) {
+          let lastHolidayInWeekIdx = -1;
+          for (let i = teamEmp.holidays.length - 1; i >= 0; i--) {
+            if (teamEmp.holidays[i]) {
+              lastHolidayInWeekIdx = i;
+              break;
+            }
+          }
+          if (lastHolidayInWeekIdx !== -1) {
+            const lastDate = weekDates.value[lastHolidayInWeekIdx];
+            masterEmp.lastHolidayDate = lastDate.toISOString().slice(0, 10);
+          }
+        }
+      });
+
+      const weekKey = getWeekKey(new Date(selectedDate.value));
+      savedPlans.value[weekKey] = {
+        aTeam: JSON.parse(JSON.stringify(aTeam.value)),
+        bTeam: JSON.parse(JSON.stringify(bTeam.value)),
+      };
+
+      const planKeys = Object.keys(savedPlans.value).sort();
+      if (planKeys.length > 4) {
+        const oldestKey = planKeys[0];
+        delete savedPlans.value[oldestKey];
+      }
+
+      showMessageBoxWithText('계획이 확정 및 저장되었습니다.');
+    }
+  );
+}
+
+// 4. Watchers & Lifecycle (감시 및 생명주기 훅)
+watch(selectedDate, (newDateStr) => {
+  updateTeamsForSelectedDate(newDateStr);
+});
+
+watch([employees, savedPlans], saveToStorage, {
+  deep: true,
+});
+
+onMounted(() => {
+  loadFromStorage();
+  updateTeamsForSelectedDate(selectedDate.value);
+});
 </script>
 
 <style>
@@ -1078,7 +1217,7 @@ function onHolidayManageChange(name) {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 10mm;
+    margin: 0mm 10mm 0mm 10mm;
   }
   html,
   body {
@@ -1127,28 +1266,50 @@ function onHolidayManageChange(name) {
   .print-table thead tr:first-child th {
     height: 15mm;
   }
+  /* A조 직원 */
   .print-table tbody tr:nth-child(1) th,
   .print-table tbody tr:nth-child(1) td {
-    height: 45mm;
-  }
-  .print-table tbody tr:nth-child(2) th,
-  .print-table tbody tr:nth-child(2) td {
-    height: 45mm;
-  }
-  .print-table tbody tr:nth-child(3) th,
-  .print-table tbody tr:nth-child(3) td {
-    height: 25mm;
-  }
-  .print-table tbody tr:nth-child(4) th,
-  .print-table tbody tr:nth-child(4) td {
     height: 30mm;
   }
-  .print-table tbody tr:nth-child(5) th {
-    height: 60mm;
-    vertical-align: middle;
+  /* A조 파트 */
+  .print-table tbody tr:nth-child(2) th,
+  .print-table tbody tr:nth-child(2) td {
+    height: 20mm;
   }
+  /* B조 직원 */
+  .print-table tbody tr:nth-child(3) th,
+  .print-table tbody tr:nth-child(3) td {
+    height: 30mm;
+  }
+  /* B조 파트 */
+  .print-table tbody tr:nth-child(4) th,
+  .print-table tbody tr:nth-child(4) td {
+    height: 20mm;
+  }
+  /* 마감 */
+  .print-table tbody tr:nth-child(5) th,
   .print-table tbody tr:nth-child(5) td {
-    height: 60mm;
+    height: 25mm;
+  }
+  /* 휴무 직원 */
+  .print-table tbody tr:nth-child(6) th,
+  .print-table tbody tr:nth-child(6) td {
+    height: 15mm;
+  }
+  /* 휴무 파트 */
+  .print-table tbody tr:nth-child(7) th,
+  .print-table tbody tr:nth-child(7) td {
+    height: 15mm;
+  }
+  /* 교육·지원 */
+  .print-table tbody tr:nth-child(8) th,
+  .print-table tbody tr:nth-child(8) td {
+    height: 15mm;
+  }
+  /* 내용 */
+  .print-table tbody tr:nth-child(9) th,
+  .print-table tbody tr:nth-child(9) td {
+    height: 55mm;
     vertical-align: middle;
   }
   .blank-header {
@@ -1211,6 +1372,21 @@ function onHolidayManageChange(name) {
 }
 .confirm-btn:hover {
   background: #1251a3;
+}
+.rewrite-btn {
+  margin-left: 12px;
+  padding: 6px 18px;
+  font-size: 1.05rem;
+  background: #ff9800;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+.rewrite-btn:hover {
+  background: #f57c00;
 }
 </style>
 
@@ -1414,8 +1590,8 @@ function onHolidayManageChange(name) {
   min-width: 110px;
 }
 .title-input {
-  width: 80px;
-  max-width: 120px;
+  width: 150px;
+  max-width: 180px;
   font-size: 1.1rem;
   text-align: center;
   border: none;
@@ -1423,6 +1599,11 @@ function onHolidayManageChange(name) {
   outline: none;
   background: transparent;
   margin: 0 2px;
+}
+.date-display {
+  font-size: 0.9em;
+  font-weight: normal;
+  color: #555;
 }
 .holiday-manage-modal {
   min-width: 420px;
@@ -1468,5 +1649,38 @@ function onHolidayManageChange(name) {
 .hm-select:focus {
   border: 1.5px solid #1976d2;
   outline: none;
+}
+.plan-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px 0;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.plan-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  background: #f5f7fa;
+  border: 1px solid #e0e7ef;
+}
+.plan-actions {
+  display: flex;
+  gap: 8px;
+}
+.plan-actions button {
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: 1px solid #b0b0b0;
+  cursor: pointer;
+  background: #fff;
+}
+.plan-actions .delete-btn {
+  background: #fbe9e7;
+  color: #d32f2f;
+  border-color: #ffccbc;
 }
 </style>
