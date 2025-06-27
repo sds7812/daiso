@@ -1000,7 +1000,13 @@ const getWorkingEmployeesByType = (team, empType, dayIdx) => {
 
 const getClosers = (dayIdx) => {
   return bTeam.value
-    .filter((emp) => emp && emp.type === '정직원' && emp.stars?.[dayIdx])
+    .filter(
+      (emp) =>
+        emp &&
+        emp.type === '정직원' &&
+        emp.stars?.[dayIdx] &&
+        !emp.holidays?.[dayIdx]
+    )
     .map((emp) => emp.name);
 };
 
