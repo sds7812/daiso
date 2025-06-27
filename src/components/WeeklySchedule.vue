@@ -30,6 +30,15 @@
         <button @click="openPrintModal">출력</button>
         <button @click="openHolidayManageModal">휴무관리</button>
         <button @click="openPlanManagementModal">계획 관리</button>
+        <!-- 휴일 요청 버튼을 계획 관리 버튼 오른쪽에 위치 -->
+        <button
+          class="request-btn"
+          :class="{ active: isRequestMode }"
+          @click="toggleRequestMode"
+          style="font-weight: bold; margin-left: 8px"
+        >
+          휴일 요청
+        </button>
       </div>
 
       <!-- 직원명부 모달 -->
@@ -257,13 +266,20 @@
                 <td
                   v-for="(day, dayIdx) in days"
                   :key="'A' + idx + day"
-                  @click="toggleCheckOrStar('A', idx, dayIdx)"
+                  @click="
+                    isRequestMode
+                      ? onRequestCellClick('A', idx, dayIdx)
+                      : toggleCheckOrStar('A', idx, dayIdx)
+                  "
                   @dblclick="toggleHoliday('A', idx, dayIdx)"
-                  :class="
+                  :class="[
                     emp && emp.holidays && emp.holidays[dayIdx]
                       ? 'holiday-cell'
-                      : ''
-                  "
+                      : '',
+                    requestedCells.has(`A-${idx}-${dayIdx}`)
+                      ? 'requested-cell'
+                      : '',
+                  ]"
                 >
                   <span
                     v-if="emp && emp.holidays && emp.holidays[dayIdx]"
@@ -305,13 +321,20 @@
                 <td
                   v-for="(day, dayIdx) in days"
                   :key="'B' + idx + day"
-                  @click="toggleCheckOrStar('B', idx, dayIdx)"
+                  @click="
+                    isRequestMode
+                      ? onRequestCellClick('B', idx, dayIdx)
+                      : toggleCheckOrStar('B', idx, dayIdx)
+                  "
                   @dblclick="toggleHoliday('B', idx, dayIdx)"
-                  :class="
+                  :class="[
                     emp && emp.holidays && emp.holidays[dayIdx]
                       ? 'holiday-cell'
-                      : ''
-                  "
+                      : '',
+                    requestedCells.has(`B-${idx}-${dayIdx}`)
+                      ? 'requested-cell'
+                      : '',
+                  ]"
                 >
                   <span
                     v-if="emp && emp.holidays && emp.holidays[dayIdx]"
@@ -584,6 +607,8 @@ const showPlanManagementModal = ref(false);
 const savedPlans = ref({});
 let messageBoxCallback = null;
 let dragIdx = null;
+const isRequestMode = ref(false); // 휴일 요청 모드 on/off
+const requestedCells = ref(new Set()); // 요청된 셀 key 집합
 
 const weekDates = computed(() => {
   const date = new Date(selectedDate.value);
@@ -872,6 +897,41 @@ function toggleHoliday(teamType, idx, dayIdx) {
         );
         return;
       }
+    } else if (isHoliday) {
+      // 휴일 해제 시 규칙 위반 체크
+      // 1. 해당 휴일을 해제
+      emp.holidays[dayIdx] = false;
+      // 2. 남아있는 휴일 인덱스 찾기
+      const remainIdx = emp.holidays.findIndex((h) => h);
+      if (remainIdx !== -1) {
+        // 남아있는 휴일이 있으면, 이전 주 마지막 휴무일과의 차이 체크
+        const remainDate = weekDates.value[remainIdx];
+        if (lastHolidayDate) {
+          const diff = getDaysDiff(
+            lastHolidayDate,
+            remainDate.toISOString().slice(0, 10)
+          );
+          if (diff > 5) {
+            // 규칙 위반: 사용자에게 확인 요청
+            showMessageBoxWithText(
+              `앞의 휴일을 해제하면 남은 휴일이 이전 휴무일(${lastHolidayDate})로부터 5일 초과로 지정됩니다. 계속하시겠습니까?`,
+              'confirm',
+              () => {
+                // 확인 시: 두 휴일 모두 해제
+                emp.holidays[dayIdx] = false;
+                emp.holidays[remainIdx] = false;
+                showMessageBoxWithText(
+                  '규칙 위반으로 두 휴일 모두 해제되었습니다.'
+                );
+              }
+            );
+            // 취소 시: 원래 휴일 상태로 되돌리기
+            emp.holidays[dayIdx] = true;
+            return;
+          }
+        }
+      }
+      return;
     }
   } else {
     // 파트타임
@@ -1214,6 +1274,23 @@ onMounted(() => {
   loadFromStorage();
   updateTeamsForSelectedDate(selectedDate.value);
 });
+
+// 2. 휴일 요청 버튼 토글 함수
+function toggleRequestMode() {
+  isRequestMode.value = !isRequestMode.value;
+}
+
+// 3. 셀 클릭 시 요청 토글 함수
+function onRequestCellClick(teamType, idx, dayIdx) {
+  if (isRequestMode.value) {
+    const key = `${teamType}-${idx}-${dayIdx}`;
+    if (requestedCells.value.has(key)) {
+      requestedCells.value.delete(key);
+    } else {
+      requestedCells.value.add(key);
+    }
+  }
+}
 </script>
 
 <style>
@@ -1393,6 +1470,15 @@ onMounted(() => {
 }
 .rewrite-btn:hover {
   background: #f57c00;
+}
+.request-btn.active {
+  background: #ffeaea;
+  color: #c62828;
+  border: 2px solid #ffc1c1;
+}
+.requested-cell {
+  background-color: #ffeaea !important;
+  border: 2px solid #ffc1c1 !important;
 }
 </style>
 
