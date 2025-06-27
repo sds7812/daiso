@@ -39,6 +39,13 @@
         >
           휴일 요청
         </button>
+        <!-- '작성 일정' 버튼 추가 -->
+        <button
+          @click="openScheduleModal"
+          style="font-weight: bold; margin-left: 8px"
+        >
+          작성 일정
+        </button>
       </div>
 
       <!-- 직원명부 모달 -->
@@ -578,6 +585,43 @@
         </tbody>
       </table>
     </div>
+
+    <!-- 작성 일정 모달 -->
+    <div
+      v-if="showScheduleModal"
+      class="modal-overlay"
+      @click.self="closeScheduleModal"
+    >
+      <div class="modal-content">
+        <h3>작성 일정</h3>
+        <table class="holiday-manage-table">
+          <thead>
+            <tr>
+              <th>근무개시일</th>
+              <th>계획표생성일</th>
+              <th>등록마감일</th>
+              <th>결재마감일</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in scheduleRows" :key="row.start">
+              <td>{{ row.start }}</td>
+              <td>{{ row.plan }}</td>
+              <td>
+                {{ row.reg }}
+                <span class="reg-remain" style="color: #1976d2">{{
+                  row.regRemain
+                }}</span>
+              </td>
+              <td>{{ row.appr }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="modal-btns" style="margin-top: 16px">
+          <button @click="closeScheduleModal">닫기</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -609,6 +653,7 @@ let messageBoxCallback = null;
 let dragIdx = null;
 const isRequestMode = ref(false); // 휴일 요청 모드 on/off
 const requestedCells = ref(new Set()); // 요청된 셀 key 집합
+const showScheduleModal = ref(false); // 작성 일정 모달 표시 여부
 
 const weekDates = computed(() => {
   const date = new Date(selectedDate.value);
@@ -865,9 +910,9 @@ function toggleHoliday(teamType, idx, dayIdx) {
         newHolidayDate.toISOString().slice(0, 10)
       );
 
-      if (diff > 5) {
+      if (diff > 6) {
         showMessageBoxWithText(
-          '정직원의 두 휴일 사이 간격은 5일을 초과할 수 없습니다.'
+          '정직원의 두 휴일 사이 간격은 6일을 초과할 수 없습니다.'
         );
         return;
       }
@@ -884,9 +929,9 @@ function toggleHoliday(teamType, idx, dayIdx) {
           lastHolidayDate,
           newHolidayDate.toISOString().slice(0, 10)
         );
-        if (diff > 5) {
+        if (diff > 6) {
           showMessageBoxWithText(
-            `정직원은 이전 휴무일(${lastHolidayDate})로부터 5일 이내에 휴무를 지정해야 합니다.`
+            `정직원은 이전 휴무일(${lastHolidayDate})로부터 6일 이내에 휴무를 지정해야 합니다.`
           );
           return;
         }
@@ -911,10 +956,10 @@ function toggleHoliday(teamType, idx, dayIdx) {
             lastHolidayDate,
             remainDate.toISOString().slice(0, 10)
           );
-          if (diff > 5) {
+          if (diff > 6) {
             // 규칙 위반: 사용자에게 확인 요청
             showMessageBoxWithText(
-              `앞의 휴일을 해제하면 남은 휴일이 이전 휴무일(${lastHolidayDate})로부터 5일 초과로 지정됩니다. 계속하시겠습니까?`,
+              `앞의 휴일을 해제하면 남은 휴일이 이전 휴무일(${lastHolidayDate})로부터 6일 초과로 지정됩니다. 계속하시겠습니까?`,
               'confirm',
               () => {
                 // 확인 시: 두 휴일 모두 해제
@@ -934,7 +979,7 @@ function toggleHoliday(teamType, idx, dayIdx) {
       return;
     }
   } else {
-    // 파트타임
+    // 파트타임: 1주일에 1번만 휴무 지정 가능
     if (!isHoliday) {
       if (currentCount >= 1) {
         showMessageBoxWithText(
@@ -942,18 +987,7 @@ function toggleHoliday(teamType, idx, dayIdx) {
         );
         return;
       }
-      if (lastHolidayDate) {
-        const diff = getDaysDiff(
-          lastHolidayDate,
-          newHolidayDate.toISOString().slice(0, 10)
-        );
-        if (diff > 6) {
-          showMessageBoxWithText(
-            `파트타임은 이전 휴무일(${lastHolidayDate})로부터 6일 이내에 휴무를 지정해야 합니다.`
-          );
-          return;
-        }
-      }
+      // 이전 휴무일로부터 6일 이내 규정은 삭제됨
     }
   }
   emp.holidays[dayIdx] = !isHoliday;
@@ -1291,6 +1325,68 @@ function onRequestCellClick(teamType, idx, dayIdx) {
     }
   }
 }
+
+// 작성 일정 모달 열기 함수
+function openScheduleModal() {
+  showScheduleModal.value = true;
+}
+function closeScheduleModal() {
+  showScheduleModal.value = false;
+}
+
+// 근무개시일(오늘 기준 미래 2주 단위 4개) 자동 생성, 결재마감일이 지난 행은 제외
+const getFutureScheduleRows = () => {
+  const result = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let base = new Date('2025-07-20');
+  // base가 오늘보다 과거면, 오늘 이후의 가장 가까운 2주 단위 일요일로 맞춤
+  while (base < today) {
+    base.setDate(base.getDate() + 14);
+  }
+  let count = 0;
+  let i = 0;
+  while (count < 4) {
+    const start = new Date(base);
+    start.setDate(base.getDate() + i * 14);
+    // 계획표생성일: 15일 전
+    const planDate = new Date(start);
+    planDate.setDate(start.getDate() - 15);
+    // 등록마감일: 10일 전
+    const regDate = new Date(start);
+    regDate.setDate(start.getDate() - 10);
+    // 결재마감일: 8일 전
+    const apprDate = new Date(start);
+    apprDate.setDate(start.getDate() - 8);
+    // 결재마감일이 오늘보다 과거면 제외
+    if (apprDate < today) {
+      i++;
+      continue;
+    }
+    // 등록마감일 (며칠전)
+    const diff = Math.ceil((regDate - today) / (1000 * 60 * 60 * 24));
+    let regRemain = '';
+    if (diff > 0) regRemain = `(${diff}일전)`;
+    else if (diff === 0) regRemain = '(오늘)';
+    else regRemain = '(마감)';
+    // 날짜 포맷 YYYY-MM-DD
+    const fmt = (d) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+        d.getDate()
+      ).padStart(2, '0')}`;
+    result.push({
+      start: fmt(start),
+      plan: fmt(planDate),
+      reg: fmt(regDate),
+      regRemain,
+      appr: fmt(apprDate),
+    });
+    count++;
+    i++;
+  }
+  return result;
+};
+const scheduleRows = getFutureScheduleRows();
 </script>
 
 <style>
@@ -1716,9 +1812,8 @@ function onRequestCellClick(teamType, idx, dayIdx) {
   text-align: center;
 }
 .holiday-manage-table td {
-  padding: 4px 0 4px 0;
-  font-size: 1.08rem;
-  vertical-align: middle;
+  padding: 8px 16px;
+  min-width: 110px;
   text-align: center;
 }
 .hm-emp-name {
@@ -1774,5 +1869,10 @@ function onRequestCellClick(teamType, idx, dayIdx) {
   background: #fbe9e7;
   color: #d32f2f;
   border-color: #ffccbc;
+}
+/* (며칠전) 스타일 개선 */
+.holiday-manage-table .reg-remain {
+  margin-left: 8px;
+  display: inline-block;
 }
 </style>
